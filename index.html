@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中国旅行足迹地图 · China Travel Photo Map</title>
+<!-- 本地依赖确保离线与GitHub Pages零延迟可用 -->
+<script src="d3.min.js"></script>
+<script src="html2canvas.min.js"></script>
+<script src="china-data.js"></script>
+<style>
+:root {
+  --bg: #f8f9fa;
+  --panel-bg: #ffffff;
+  --text: #1f2937;
+  --text-muted: #6b7280;
+  --border: #e5e7eb;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --accent: #f59e0b;
+  --map-empty: #eaeaea;
+  --map-stroke: #ffffff;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 14px rgba(0,0,0,0.08);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.12);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部导航栏 */
+header {
+  height: 60px;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 30;
+  box-shadow: var(--shadow-sm);
+}
+
+.logo-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-icon {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, #3b82f6, #ec4899);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 20px;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+}
+.logo-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.logo-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* 足迹计数微件 */
+.stats-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f1f5f9;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.stats-pill:hover {
+  background: #e2e8f0;
+}
+.stats-pill .num {
+  font-weight: 700;
+  color: var(--primary);
+}
+.progress-bar {
+  width: 80px;
+  height: 6px;
+  background: #cbd5e1;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-val {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #10b981);
+  width: 0%;
+  transition: width 0.4s ease;
+}
+
+/* 顶部操作按钮 */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.btn:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+.btn-primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+.btn-poster {
+  background: linear-gradient(135deg, #1e293b, #334155);
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 8px rgba(30,41,59,0.25);
+}
+.btn-poster:hover {
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  transform: translateY(-1px);
+}
+
+/* 主地图区域 */
+#main-view {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at center, #ffffff 0%, #f3f4f6 100%);
+}
+#map-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 省份样式 */
+.prov-path {
+  fill: var(--map-empty);
+  stroke: var(--map-stroke);
+  stroke-width: 1;
+  cursor: pointer;
+  transition: fill 0.2s, stroke 0.2s, transform 0.2s;
+}
+.prov-path:hover {
+  fill: #dbeafe;
+  stroke: var(--primary);
+  stroke-width: 1.8;
+}
+.prov-path.has-photos {
+  fill: #bfdbfe;
+}
+.prov-path.has-photos:hover {
+  fill: #93c5fd;
+}
+.prov-label {
+  font-size: 10px;
+  font-weight: 500;
+  fill: #4b5563;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  user-select: none;
+}
+.prov-label.has-photos {
+  font-weight: 700;
+  fill: #1e3a8a;
+}
+
+/* 十段线及群岛 */
+.jd-path {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 1.2;
+  stroke-dasharray: 4, 3;
+  pointer-events: none;
+}
+
+/* 地图浮动工具栏 */
+.map-controls {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10;
+}
+.ctrl-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.ctrl-btn:hover {
+  background: #f1f5f9;
+  transform: scale(1.05);
+}
+
+/* Tooltip 浮动提示 */
+#tip {
+  position: fixed;
+  background: rgba(15, 23, 42, 0.9);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.15s;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* 右侧省份详情抽屉 */
+#drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 440px;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-lg);
+  border-left: 1px solid var(--border);
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+#drawer.open {
+  transform: translateX(0);
+}
+.drawer-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.drawer-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+.drawer-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.close-btn:hover { background: #f3f4f6; }
+
+/* 抽屉内容区 */
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* 省份拼贴效果卡片预览 */
+.collage-preview-card {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 18px;
+}
+.collage-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.collage-canvas-container {
+  width: 100%;
+  height: 140px;
+  border-radius: 10px;
+  background: #e2e8f0;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#provPreviewCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.empty-preview-text {
+  position: absolute;
+  font-size: 12px;
+  color: #64748b;
+  pointer-events: none;
+}
+
+/* 照片拖拽上传区 */
+.dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 14px;
+  padding: 22px 14px;
+  text-align: center;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 20px;
+}
+.dropzone:hover, .dropzone.drag-active {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+.dropzone-icon {
+  font-size: 32px;
+  margin-bottom: 6px;
+}
+.dropzone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.dropzone-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* 旅行笔记/日期备注 */
+.trip-note-area {
+  margin-bottom: 18px;
+}
+.trip-note-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: block;
+}
+.trip-note-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.trip-note-input:focus {
+  border-color: var(--primary);
+}
+
+/* 照片网格 */
+.photo-grid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.photo-grid-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.photo-item {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #e2e8f0;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.photo-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.photo-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.photo-item .actions-bar {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.photo-item:hover .actions-bar {
+  opacity: 1;
+}
+.action-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #1f2937;
+  transition: transform 0.15s;
+}
+.action-icon-btn:hover {
+  transform: scale(1.15);
+}
+.action-icon-btn.delete:hover {
+  background: #ef4444;
+  color: white;
+}
+.cover-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(0,0,0,0.6);
+  color: #fbbf24;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  backdrop-filter: blur(2px);
+}
+
+/* 全屏灯箱 (Lightbox) */
+#lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.94);
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+#lightbox.active {
+  display: flex;
+}
+#lb-image {
+  max-width: 90vw;
+  max-height: 82vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.lb-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  color: white;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+.lb-btn:hover { background: rgba(255,255,255,0.3); }
+#lb-prev { left: 24px; }
+#lb-next { right: 24px; }
+#lb-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  color: white;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#lb-info {
+  margin-top: 14px;
+  color: rgba(255,255,255,0.7);
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+
+/* 通用弹窗 (Modal) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-overlay.active {
+  display: flex;
+}
+.modal-card {
+  background: var(--panel-bg);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  max-width: 640px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+.modal-body {
+  padding: 24px;
+  flex: 1;
+}
+
+/* 海报导出专属弹窗 (全景设计器) */
+#poster-modal .modal-card {
+  max-width: 980px;
+  max-height: 92vh;
+}
+.poster-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+}
+.poster-preview-wrapper {
+  background: #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+/* 海报画板样式：还原用户参考图！ */
+#poster-canvas-box {
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 3 / 4;
+  background: #f8f7f4;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.15);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 36px 20px 28px 20px;
+  position: relative;
+  transition: background 0.3s;
+}
+.poster-main-title {
+  font-family: "Optima", "Playfair Display", "Songti SC", Georgia, serif;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  color: #1a1a1a;
+}
+.poster-map-container {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 10px 0;
+}
+#poster-svg {
+  width: 100%;
+  height: 100%;
+  max-height: 400px;
+}
+.poster-footer {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.poster-date-range {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  color: #71717a;
+  font-weight: 400;
+}
+.poster-brand-text {
+  font-family: "Optima", "Georgia", serif;
+  font-size: 12px;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+  color: #a1a1aa;
+}
+
+/* 控制表单项 */
+.form-group {
+  margin-bottom: 16px;
+}
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: block;
+}
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  outline: none;
+}
+.form-input:focus { border-color: var(--primary); }
+
+.theme-selector {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.theme-opt {
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.theme-opt.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.2);
+}
+.theme-opt.cream { background: #f8f7f4; color: #333; }
+.theme-opt.dark { background: #18181b; color: #fff; }
+.theme-opt.white { background: #ffffff; color: #333; border: 1px solid #e2e8f0; }
+.theme-opt.vintage { background: #f4ede4; color: #451a03; }
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  #drawer { width: 100%; }
+  .poster-layout { grid-template-columns: 1fr; }
+  .stats-pill .progress-bar { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- 顶部导航栏 -->
+<header>
+  <div class="logo-area">
+    <div class="logo-icon">🗺️</div>
+    <div>
+      <div class="logo-title">中国旅行足迹地图</div>
+      <div class="logo-subtitle">点亮每一寸河山 · 照片拼接总览</div>
+    </div>
+  </div>
+
+  <!-- 足迹打卡计数 -->
+  <div class="stats-pill" onclick="openChecklistModal()" title="点击查看省份足迹清单">
+    <span>🇨🇳 足迹探索度</span>
+    <span class="num" id="statsCount">0 / 34</span>
+    <span class="text-xs" id="statsPercent" style="color:var(--text-muted);font-size:11px;">0.0%</span>
+    <div class="progress-bar">
+      <div class="progress-val" id="statsProgressBar"></div>
+    </div>
+  </div>
+
+  <!-- 顶部操作区 -->
+  <div class="actions">
+    <button class="btn" id="btnToggleOverview" onclick="toggleOverviewMode()">
+      <span id="btnOvIcon">📷</span> <span id="btnOvText">照片填满总览</span>
+    </button>
+    <button class="btn btn-poster" onclick="openPosterModal()">
+      <span>🎨</span> 导出海报
+    </button>
+    <button class="btn" onclick="openChecklistModal()">
+      <span>📋</span> 足迹清单
+    </button>
+    <button class="btn" onclick="openGithubModal()">
+      <span>🚀</span> 部署上线
+    </button>
+  </div>
+</header>
+
+<!-- 主地图视图 -->
+<div id="main-view">
+  <svg id="map-svg" viewBox="0 0 1000 940">
+    <defs id="svg-defs"></defs>
+    <!-- 底层省份轮廓与背景 -->
+    <g id="g-provinces"></g>
+    <!-- 照片拼贴填充层 (总览模式) -->
+    <g id="g-photo-fills"></g>
+    <!-- 十段线及群岛 -->
+    <g id="g-lines"></g>
+    <!-- 省份名称文字标签 -->
+    <g id="g-labels"></g>
+  </svg>
+
+  <!-- 地图控制按钮 -->
+  <div class="map-controls">
+    <button class="ctrl-btn" onclick="zoomMap(1.2)" title="放大">+</button>
+    <button class="ctrl-btn" onclick="zoomMap(0.8)" title="缩小">−</button>
+    <button class="ctrl-btn" onclick="resetMapZoom()" title="重置视角">⟲</button>
+  </div>
+</div>
+
+<!-- 鼠标悬停省份提示 -->
+<div id="tip"></div>
+
+<!-- 右侧省份详情抽屉 -->
+<div id="drawer">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-title" id="dProvName">省份名称</div>
+      <div class="drawer-subtitle" id="dProvMeta">已上传 0 张照片</div>
+    </div>
+    <button class="close-btn" onclick="closeDrawer()">✕</button>
+  </div>
+
+  <div class="drawer-body">
+    <!-- 实时拼贴预览卡片 -->
+    <div class="collage-preview-card">
+      <div class="collage-preview-title">
+        <span>📸 省份拼贴效果预览</span>
+        <span id="previewCountBadge" style="font-size:11px;color:var(--primary);">0 张拼贴</span>
+      </div>
+      <div class="collage-canvas-container">
+        <canvas id="provPreviewCanvas"></canvas>
+        <div id="emptyPreviewNotice" class="empty-preview-text">上传照片后将在此拼贴</div>
+      </div>
+    </div>
+
+    <!-- 拖拽上传区域 -->
+    <div class="dropzone" id="dropzone" onclick="triggerFileInput()"
+      ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="dropzone-icon">📷</div>
+      <div class="dropzone-title">点击或拖拽照片到此处</div>
+      <div class="dropzone-desc">支持 JPG / PNG / WEBP · 自动高清压缩存储</div>
+    </div>
+    <input type="file" id="fileInput" multiple accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+
+    <!-- 旅行笔记与时间备注 -->
+    <div class="trip-note-area">
+      <label class="trip-note-label">📝 旅行足迹与时间备注</label>
+      <input type="text" id="provTripNote" class="trip-note-input"
+        placeholder="例如：2025年秋 稻城亚丁自驾 / 漫步宽窄巷子..." onchange="saveProvNote(this.value)">
+    </div>
+
+    <!-- 照片列表 -->
+    <div class="photo-grid-header">
+      <span class="photo-grid-title">照片相册</span>
+      <span id="photoListCount" style="font-size:12px;color:var(--text-muted);">共 0 张</span>
+    </div>
+    <div class="photo-grid" id="photoGrid"></div>
+    <div id="noPhotosNotice" style="text-align:center;padding:30px 0;color:var(--text-muted);font-size:13px;">
+      还没有为该省份添加照片<br>点击上方区域开始填充吧 ✨
+    </div>
+  </div>
+</div>
+
+<!-- 全屏相片灯箱 (Lightbox) -->
+<div id="lightbox">
+  <button id="lb-close" onclick="closeLightbox()">✕</button>
+  <button id="lb-prev" class="lb-btn" onclick="navigateLightbox(-1)">‹</button>
+  <img id="lb-image" src="" alt="大图预览">
+  <div id="lb-info"></div>
+  <button id="lb-next" class="lb-btn" onclick="navigateLightbox(1)">›</button>
+</div>
+
+<!-- 海报生成器弹窗 (Poster Modal) -->
+<div class="modal-overlay" id="poster-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">🎨 导出艺术海报 · 纪念你的中国行</div>
+      <button class="close-btn" onclick="closePosterModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="poster-layout">
+        <!-- 实时画板预览区 -->
+        <div class="poster-preview-wrapper">
+          <div id="poster-canvas-box">
+            <div class="poster-main-title" id="pTitleDisplay">C H I N A</div>
+            <div class="poster-map-container">
+              <svg id="poster-svg" viewBox="0 0 1000 940"></svg>
+            </div>
+            <div class="poster-footer">
+              <div class="poster-date-range" id="pDateDisplay">2024.06.26 — 2026.11.08</div>
+              <div class="poster-brand-text" id="pBrandDisplay">L U M A P</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 海报参数定制区 -->
+        <div class="poster-controls">
+          <div class="form-group">
+            <label class="form-label">海报主题纸张质感</label>
+            <div class="theme-selector">
+              <div class="theme-opt cream active" onclick="setPosterTheme('cream')">经典米白</div>
+              <div class="theme-opt dark" onclick="setPosterTheme('dark')">曜石夜幕</div>
+              <div class="theme-opt white" onclick="setPosterTheme('white')">雪域纯白</div>
+              <div class="theme-opt vintage" onclick="setPosterTheme('vintage')">复古牛皮</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">顶部大标题</label>
+            <input type="text" id="inputPTitle" class="form-input" value="CHINA" oninput="updatePosterText()">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">底部旅行日期区间</label>
+            <input type="text" id="inputPDate" class="form-input" value="2024.06.26 — 2026.11.08" oninput="updatePosterText()">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">底部副标 / 签名</label>
+            <input type="text" id="inputPBrand" class="form-input" value="LUMAP" oninput="updatePosterText()">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">未打卡省份显示样式</label>
+            <select id="selectEmptyStyle" class="form-input" onchange="renderPosterMap()">
+              <option value="hidden">留白隐藏（与参考图一致，照片凸显）</option>
+              <option value="subtle">淡雅浅灰轮廓（展现完整祖国版图）</option>
+            </select>
+          </div>
+
+          <div style="margin-top:24px;display:flex;flex-direction:column;gap:10px;">
+            <button class="btn btn-primary" style="justify-content:center;padding:12px;font-size:14px;" onclick="exportPosterImage('png')">
+              📥 保存超清海报 (PNG 无损)
+            </button>
+            <button class="btn" style="justify-content:center;padding:10px;font-size:13px;" onclick="exportPosterImage('jpeg')">
+              🖼️ 保存 JPG 格式
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 足迹打卡清单弹窗 -->
+<div class="modal-overlay" id="checklist-modal">
+  <div class="modal-card" style="max-width:540px;">
+    <div class="modal-header">
+      <div class="modal-title">📋 34 个省级行政区打卡足迹</div>
+      <button class="close-btn" onclick="closeChecklistModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:10px;margin-bottom:16px;">
+        <button class="btn btn-primary" id="tabVisited" onclick="switchChecklistTab('visited')">已解锁省份 (<span id="countV">0</span>)</button>
+        <button class="btn" id="tabUnvisited" onclick="switchChecklistTab('unvisited')">待探索省份 (<span id="countU">34</span>)</button>
+      </div>
+      <div id="checklistContainer" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;max-height:400px;overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- GitHub 部署上线指南弹窗 -->
+<div class="modal-overlay" id="github-modal">
+  <div class="modal-card" style="max-width:600px;">
+    <div class="modal-header">
+      <div class="modal-title">🚀 上传 GitHub 并生成免费网页链接</div>
+      <button class="close-btn" onclick="closeGithubModal()">✕</button>
+    </div>
+    <div class="modal-body" style="font-size:13px;line-height:1.7;">
+      <p style="margin-bottom:12px;font-weight:600;color:var(--primary);">
+        ✅ 项目已配置为纯静态页面，完全支持一键托管到 GitHub Pages！
+      </p>
+
+      <div style="background:#f1f5f9;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:700;margin-bottom:6px;">步骤 1：在 GitHub 创建一个新仓库</div>
+        <p style="color:var(--text-muted);">
+          打开 <a href="https://github.com/new" target="_blank" style="color:var(--primary);text-decoration:underline;">github.com/new</a>，新建一个公开仓库，例如命名为 <code>china-travel-map</code>。
+        </p>
+      </div>
+
+      <div style="background:#f1f5f9;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:700;margin-bottom:6px;">步骤 2：在项目目录执行推送命令</div>
+        <pre style="background:#1e293b;color:#f8fafc;padding:10px;border-radius:6px;font-size:12px;overflow-x:auto;">
+git remote add origin https://github.com/你的用户名/china-travel-map.git
+git branch -M main
+git push -u origin main</pre>
+      </div>
+
+      <div style="background:#f1f5f9;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:700;margin-bottom:6px;">步骤 3：开启 GitHub Pages 网站</div>
+        <p style="color:var(--text-muted);">
+          进入仓库的 <b>Settings</b> ➔ <b>Pages</b> ➔ <b>Branch</b> 选择 <code>main</code>，点击 <b>Save</b>。<br>
+          大约 1 分钟后即可获得公网链接：<br>
+          <code style="color:#059669;font-weight:700;">https://你的用户名.github.io/china-travel-map/</code>
+        </p>
+      </div>
+
+      <div style="text-align:right;">
+        <button class="btn btn-primary" onclick="closeGithubModal()">我知道了</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// 1. IndexedDB 存储模块（容量大，支持持久保存海量照片）
+// ─────────────────────────────────────────────────────────────
+const DB_NAME = 'ChinaTravelMapDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'provinces';
+let dbInstance = null;
+
+function initDB() {
+  return new Promise((resolve, reject) => {
+    if (dbInstance) return resolve(dbInstance);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'adcode' });
+      }
+    };
+    req.onsuccess = e => {
+      dbInstance = e.target.result;
+      resolve(dbInstance);
+    };
+    req.onerror = e => reject(e);
+  });
+}
+
+async function getProvinceData(adcode) {
+  try {
+    const db = await initDB();
+    return new Promise(resolve => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(String(adcode));
+      req.onsuccess = () => resolve(req.result || { adcode: String(adcode), photos: [], note: '' });
+      req.onerror = () => resolve({ adcode: String(adcode), photos: [], note: '' });
+    });
+  } catch (err) {
+    // Fallback to localStorage
+    try {
+      const raw = localStorage.getItem('ctm_' + adcode);
+      return raw ? JSON.parse(raw) : { adcode: String(adcode), photos: [], note: '' };
+    } catch (e) {
+      return { adcode: String(adcode), photos: [], note: '' };
+    }
+  }
+}
+
+async function saveProvinceData(data) {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      store.put(data);
+      tx.oncomplete = () => resolve();
+      tx.onerror = e => reject(e);
+    });
+  } catch (err) {
+    try {
+      localStorage.setItem('ctm_' + data.adcode, JSON.stringify(data));
+    } catch (e) {
+      console.warn('Storage quota warning', e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 2. 地图投影与 D3 渲染初始化
+// ─────────────────────────────────────────────────────────────
+const SVG_W = 1000, SVG_H = 940;
+const projection = d3.geoMercator().center([104.5, 36]).scale(860).translate([490, 390]);
+const pathGenerator = d3.geoPath(projection);
+
+let allFeatures = [];
+let provinceMap = {};
+let currentProvFeature = null;
+let isOverviewMode = false;
+let currentLightboxList = [];
+let currentLightboxIdx = 0;
+
+// 缩放控制状态
+let currentZoom = 1;
+
+// 初始化地图
+async function initApp() {
+  const geojson = window.CHINA_GEOJSON;
+  if (!geojson || !geojson.features) {
+    alert('未能加载地图数据，请检查 china-data.js 是否存在');
+    return;
+  }
+
+  allFeatures = geojson.features;
+
+  // 整理省份信息
+  allFeatures.forEach(f => {
+    const adcode = String(f.properties.adcode);
+    if (adcode === '100000_JD') return;
+    let shortName = f.properties.name
+      .replace(/(省|市|特别行政区|壮族自治区|回族自治区|维吾尔自治区|自治区)$/, '');
+    if (shortName === '内蒙古') shortName = '内蒙古';
+    if (shortName === '黑龙江') shortName = '黑龙江';
+
+    provinceMap[adcode] = {
+      adcode: adcode,
+      name: f.properties.name,
+      short: shortName,
+      feature: f,
+      center: f.properties.center || f.properties.centroid
+    };
+  });
+
+  renderMap();
+  await updateAllStats();
+}
+
+// 渲染 SVG 地图
+function renderMap() {
+  const gProv = d3.select('#g-provinces');
+  const gLines = d3.select('#g-lines');
+  const gLabels = d3.select('#g-labels');
+
+  gProv.selectAll('*').remove();
+  gLines.selectAll('*').remove();
+  gLabels.selectAll('*').remove();
+
+  allFeatures.forEach(feature => {
+    const adcode = String(feature.properties.adcode);
+
+    // 南海十段线
+    if (adcode === '100000_JD') {
+      gLines.append('path')
+        .attr('d', pathGenerator(feature))
+        .attr('class', 'jd-path');
+      return;
+    }
+
+    const pInfo = provinceMap[adcode];
+    const pathD = pathGenerator(feature);
+
+    // 绘制省份多边形
+    gProv.append('path')
+      .attr('d', pathD)
+      .attr('class', 'prov-path')
+      .attr('id', 'prov-path-' + adcode)
+      .on('click', () => openDrawer(feature))
+      .on('mouseenter', e => showTooltip(e, pInfo.name))
+      .on('mousemove', moveTooltip)
+      .on('mouseleave', hideTooltip);
+
+    // 绘制省份文字名称
+    if (pInfo.center) {
+      const [lx, ly] = projection(pInfo.center);
+      gLabels.append('text')
+        .attr('x', lx)
+        .attr('y', ly)
+        .attr('class', 'prov-label')
+        .attr('id', 'prov-label-' + adcode)
+        .text(pInfo.short);
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// 3. 统计计数与已打卡高亮
+// ─────────────────────────────────────────────────────────────
+async function updateAllStats() {
+  let visitedCount = 0;
+  const total = 34;
+  const earliestDates = [];
+  const latestDates = [];
+
+  for (const adcode in provinceMap) {
+    const data = await getProvinceData(adcode);
+    const pathEl = document.getElementById('prov-path-' + adcode);
+    const labelEl = document.getElementById('prov-label-' + adcode);
+
+    if (data.photos && data.photos.length > 0) {
+      visitedCount++;
+      if (pathEl) pathEl.classList.add('has-photos');
+      if (labelEl) labelEl.classList.add('has-photos');
+
+      data.photos.forEach(p => {
+        if (p.timestamp) {
+          earliestDates.push(p.timestamp);
+          latestDates.push(p.timestamp);
+        }
+      });
+    } else {
+      if (pathEl) pathEl.classList.remove('has-photos');
+      if (labelEl) labelEl.classList.remove('has-photos');
+    }
+  }
+
+  // 更新顶部计数器
+  const percent = ((visitedCount / total) * 100).toFixed(1);
+  document.getElementById('statsCount').textContent = `${visitedCount} / ${total}`;
+  document.getElementById('statsPercent').textContent = `${percent}%`;
+  document.getElementById('statsProgressBar').style.width = `${percent}%`;
+
+  // 更新海报日期范围
+  if (earliestDates.length > 0) {
+    earliestDates.sort((a,b) => a - b);
+    const dStart = new Date(earliestDates[0]);
+    const dEnd = new Date(earliestDates[earliestDates.length - 1]);
+    const fmt = d => `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+    const dateRangeStr = `${fmt(dStart)} — ${fmt(dEnd)}`;
+    document.getElementById('inputPDate').value = dateRangeStr;
+    document.getElementById('pDateDisplay').textContent = dateRangeStr;
+  }
+
+  if (isOverviewMode) {
+    renderPhotoOverview();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4. 照片填满省份算法 (核心总览模式与海报拼贴)
+// ─────────────────────────────────────────────────────────────
+function toggleOverviewMode() {
+  isOverviewMode = !isOverviewMode;
+  const btn = document.getElementById('btnToggleOverview');
+  const icon = document.getElementById('btnOvIcon');
+  const txt = document.getElementById('btnOvText');
+
+  if (isOverviewMode) {
+    btn.classList.add('btn-primary');
+    icon.textContent = '🗺️';
+    txt.textContent = '返回地图模式';
+    renderPhotoOverview();
+  } else {
+    btn.classList.remove('btn-primary');
+    icon.textContent = '📷';
+    txt.textContent = '照片填满总览';
+    clearPhotoOverview();
+  }
+}
+
+function clearPhotoOverview() {
+  d3.select('#svg-defs').selectAll('*').remove();
+  d3.select('#g-photo-fills').selectAll('*').remove();
+}
+
+// 提取多边形顶点，计算精确 SVG 像素范围
+function getFeatureSvgBounds(feature) {
+  let pts = [];
+  function recurse(c) {
+    if (typeof c[0] === 'number') pts.push(c);
+    else c.forEach(recurse);
+  }
+  recurse(feature.geometry.coordinates);
+  const projected = pts.map(p => projection(p));
+  const minX = Math.min(...projected.map(p => p[0]));
+  const maxX = Math.max(...projected.map(p => p[0]));
+  const minY = Math.min(...projected.map(p => p[1]));
+  const maxY = Math.max(...projected.map(p => p[1]));
+  return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+}
+
+// 渲染总览模式的照片拼贴
+async function renderPhotoOverview(targetSvgId = '#map-svg', defsId = '#svg-defs', containerId = '#g-photo-fills') {
+  const defs = d3.select(defsId);
+  const container = d3.select(containerId);
+  defs.selectAll('*').remove();
+  container.selectAll('*').remove();
+
+  for (const adcode in provinceMap) {
+    const pInfo = provinceMap[adcode];
+    const data = await getProvinceData(adcode);
+    if (!data.photos || data.photos.length === 0) continue;
+
+    const feature = pInfo.feature;
+    const pathD = pathGenerator(feature);
+    const clipId = `clip-prov-${adcode}-${targetSvgId.replace('#','')}`;
+
+    // 1. 创建 clipPath 剪裁路径
+    defs.append('clipPath')
+      .attr('id', clipId)
+      .append('path')
+      .attr('d', pathD);
+
+    // 2. 计算省份 bounding box
+    const b = getFeatureSvgBounds(feature);
+    const photos = data.photos;
+    const count = photos.length;
+
+    // 拼贴瓦片规划
+    const tiles = computeTiles(b, count);
+
+    // 绘制每个照片切片
+    tiles.forEach((tile, idx) => {
+      const ph = photos[idx % photos.length];
+      container.append('image')
+        .attr('href', ph.url)
+        .attr('x', tile.x)
+        .attr('y', tile.y)
+        .attr('width', tile.w)
+        .attr('height', tile.h)
+        .attr('preserveAspectRatio', 'xMidYMid slice')
+        .attr('clip-path', `url(#${clipId})`)
+        .style('cursor', 'pointer')
+        .on('click', () => openDrawer(feature));
+    });
+
+    // 3. 绘制省份精细高光描边 (与参考图一致的白色拍立得/拼图边界)
+    container.append('path')
+      .attr('d', pathD)
+      .attr('fill', 'none')
+      .attr('stroke', '#ffffff')
+      .attr('stroke-width', 2)
+      .style('pointer-events', 'none');
+  }
+}
+
+// 拼贴切片几何算法
+function computeTiles(bounds, count) {
+  const { minX, minY, w, h } = bounds;
+  const tiles = [];
+
+  if (count <= 1) {
+    tiles.push({ x: minX, y: minY, w: w, h: h });
+  } else if (count === 2) {
+    if (w >= h) {
+      tiles.push({ x: minX, y: minY, w: w / 2, h: h });
+      tiles.push({ x: minX + w / 2, y: minY, w: w / 2, h: h });
+    } else {
+      tiles.push({ x: minX, y: minY, w: w, h: h / 2 });
+      tiles.push({ x: minX, y: minY + h / 2, w: w, h: h / 2 });
+    }
+  } else if (count === 3) {
+    if (w >= h) {
+      for (let i = 0; i < 3; i++) {
+        tiles.push({ x: minX + (i * w) / 3, y: minY, w: w / 3, h: h });
+      }
+    } else {
+      for (let i = 0; i < 3; i++) {
+        tiles.push({ x: minX, y: minY + (i * h) / 3, w: w, h: h / 3 });
+      }
+    }
+  } else {
+    // 4 张及以上采用 2x2 或 3x2 网格
+    const cols = w >= h ? Math.min(count, 3) : 2;
+    const rows = Math.ceil(Math.min(count, 6) / cols);
+    const tw = w / cols;
+    const th = h / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (tiles.length < count && tiles.length < 6) {
+          tiles.push({ x: minX + c * tw, y: minY + r * th, w: tw, h: th });
+        }
+      }
+    }
+  }
+  return tiles;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5. 省份详情抽屉与照片管理
+// ─────────────────────────────────────────────────────────────
+async function openDrawer(feature) {
+  currentProvFeature = feature;
+  const adcode = String(feature.properties.adcode);
+  const pInfo = provinceMap[adcode];
+
+  document.getElementById('dProvName').textContent = pInfo.name;
+  const data = await getProvinceData(adcode);
+  document.getElementById('provTripNote').value = data.note || '';
+
+  renderDrawerPhotos(data);
+  document.getElementById('drawer').classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  currentProvFeature = null;
+}
+
+function renderDrawerPhotos(data) {
+  const photos = data.photos || [];
+  const count = photos.length;
+
+  document.getElementById('dProvMeta').textContent = `已上传 ${count} 张照片`;
+  document.getElementById('photoListCount').textContent = `共 ${count} 张`;
+  document.getElementById('previewCountBadge').textContent = `${count} 张拼贴`;
+
+  const grid = document.getElementById('photoGrid');
+  const noPhotos = document.getElementById('noPhotosNotice');
+  grid.innerHTML = '';
+
+  if (count === 0) {
+    noPhotos.style.display = 'block';
+  } else {
+    noPhotos.style.display = 'none';
+    photos.forEach((ph, idx) => {
+      const item = document.createElement('div');
+      item.className = 'photo-item';
+
+      const img = document.createElement('img');
+      img.src = ph.url;
+      item.appendChild(img);
+
+      if (idx === 0) {
+        const cover = document.createElement('div');
+        cover.className = 'cover-badge';
+        cover.textContent = '★ 封面';
+        item.appendChild(cover);
+      }
+
+      // 悬停操作浮层
+      const bar = document.createElement('div');
+      bar.className = 'actions-bar';
+
+      // 放大查看
+      const btnView = document.createElement('button');
+      btnView.className = 'action-icon-btn';
+      btnView.innerHTML = '🔍';
+      btnView.title = '放大查看';
+      btnView.onclick = (e) => { e.stopPropagation(); openLightbox(photos, idx); };
+
+      // 删除
+      const btnDel = document.createElement('button');
+      btnDel.className = 'action-icon-btn delete';
+      btnDel.innerHTML = '🗑';
+      btnDel.title = '删除此照片';
+      btnDel.onclick = (e) => { e.stopPropagation(); deletePhoto(idx); };
+
+      bar.appendChild(btnView);
+      bar.appendChild(btnDel);
+      item.appendChild(bar);
+
+      item.onclick = () => openLightbox(photos, idx);
+      grid.appendChild(item);
+    });
+  }
+
+  // 渲染顶部拼贴效果 Canvas 预览
+  drawCollagePreview(photos);
+}
+
+// 绘制抽屉顶部的微缩多图拼贴效果
+function drawCollagePreview(photos) {
+  const canvas = document.getElementById('provPreviewCanvas');
+  const emptyNotice = document.getElementById('emptyPreviewNotice');
+  const w = canvas.offsetWidth || 380;
+  const h = 140;
+  canvas.width = w * window.devicePixelRatio;
+  canvas.height = h * window.devicePixelRatio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.clearRect(0, 0, w, h);
+
+  if (!photos || photos.length === 0) {
+    emptyNotice.style.display = 'block';
+    return;
+  }
+  emptyNotice.style.display = 'none';
+
+  const n = Math.min(photos.length, 5);
+  const tw = w / n;
+
+  photos.slice(0, n).forEach((ph, i) => {
+    const img = new Image();
+    img.onload = () => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(i * tw + 2, 2, tw - 4, h - 4, 6);
+      ctx.clip();
+      const s = Math.max((tw - 4) / img.width, (h - 4) / img.height);
+      const dx = i * tw + (tw - img.width * s) / 2;
+      const dy = (h - img.height * s) / 2;
+      ctx.drawImage(img, dx, dy, img.width * s, img.height * s);
+      ctx.restore();
+    };
+    img.src = ph.url;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// 6. 照片上传与压缩存储 (Canvas 高清压缩)
+// ─────────────────────────────────────────────────────────────
+function triggerFileInput() {
+  document.getElementById('fileInput').click();
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.add('drag-active');
+}
+
+function handleDragLeave(e) {
+  document.getElementById('dropzone').classList.remove('drag-active');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('drag-active');
+  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  processFiles(files);
+}
+
+function handleFileSelect(e) {
+  const files = [...e.target.files];
+  processFiles(files);
+  e.target.value = '';
+}
+
+async function processFiles(files) {
+  if (!currentProvFeature || files.length === 0) return;
+  const adcode = String(currentProvFeature.properties.adcode);
+  const data = await getProvinceData(adcode);
+  data.photos = data.photos || [];
+
+  for (const file of files) {
+    try {
+      const compressedUrl = await compressImage(file);
+      data.photos.push({
+        url: compressedUrl,
+        name: file.name,
+        timestamp: file.lastModified || Date.now()
+      });
+    } catch (err) {
+      console.error('图片压缩失败:', err);
+    }
+  }
+
+  await saveProvinceData(data);
+  renderDrawerPhotos(data);
+  await updateAllStats();
+}
+
+// 自动将图片等比压缩至最大宽度 1280px，保证高清与极小体积
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_SIDE = 1280;
+        let w = img.width, h = img.height;
+        if (w > MAX_SIDE || h > MAX_SIDE) {
+          if (w > h) {
+            h = Math.round((h / w) * MAX_SIDE);
+            w = MAX_SIDE;
+          } else {
+            w = Math.round((w / h) * MAX_SIDE);
+            h = MAX_SIDE;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function deletePhoto(index) {
+  if (!currentProvFeature) return;
+  if (!confirm('确认删除这张照片吗？')) return;
+  const adcode = String(currentProvFeature.properties.adcode);
+  const data = await getProvinceData(adcode);
+  data.photos.splice(index, 1);
+  await saveProvinceData(data);
+  renderDrawerPhotos(data);
+  await updateAllStats();
+}
+
+async function saveProvNote(note) {
+  if (!currentProvFeature) return;
+  const adcode = String(currentProvFeature.properties.adcode);
+  const data = await getProvinceData(adcode);
+  data.note = note;
+  await saveProvinceData(data);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 7. 全屏相片灯箱 (Lightbox)
+// ─────────────────────────────────────────────────────────────
+function openLightbox(photos, index) {
+  currentLightboxList = photos;
+  currentLightboxIdx = index;
+  updateLightboxView();
+  document.getElementById('lightbox').classList.add('active');
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('active');
+}
+
+function navigateLightbox(dir) {
+  if (currentLightboxList.length === 0) return;
+  currentLightboxIdx = (currentLightboxIdx + dir + currentLightboxList.length) % currentLightboxList.length;
+  updateLightboxView();
+}
+
+function updateLightboxView() {
+  const ph = currentLightboxList[currentLightboxIdx];
+  if (!ph) return;
+  document.getElementById('lb-image').src = ph.url;
+  const provName = currentProvFeature ? provinceMap[String(currentProvFeature.properties.adcode)].name : '';
+  document.getElementById('lb-info').textContent =
+    `${provName} · ${currentLightboxIdx + 1} / ${currentLightboxList.length} · ${ph.name || ''}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 8. 海报生成器 (艺术海报导出，还原用户参考图)
+// ─────────────────────────────────────────────────────────────
+function openPosterModal() {
+  document.getElementById('poster-modal').classList.add('active');
+  renderPosterMap();
+}
+
+function closePosterModal() {
+  document.getElementById('poster-modal').classList.remove('active');
+}
+
+function setPosterTheme(theme) {
+  document.querySelectorAll('.theme-opt').forEach(el => el.classList.remove('active'));
+  const target = document.querySelector(`.theme-opt.${theme}`);
+  if (target) target.classList.add('active');
+
+  const box = document.getElementById('poster-canvas-box');
+  const title = document.getElementById('pTitleDisplay');
+  const date = document.getElementById('pDateDisplay');
+  const brand = document.getElementById('pBrandDisplay');
+
+  if (theme === 'cream') {
+    box.style.background = '#f8f7f4';
+    title.style.color = '#1a1a1a';
+    date.style.color = '#71717a';
+    brand.style.color = '#a1a1aa';
+  } else if (theme === 'dark') {
+    box.style.background = '#18181b';
+    title.style.color = '#f4f4f5';
+    date.style.color = '#a1a1aa';
+    brand.style.color = '#71717a';
+  } else if (theme === 'white') {
+    box.style.background = '#ffffff';
+    title.style.color = '#000000';
+    date.style.color = '#52525b';
+    brand.style.color = '#9ca3af';
+  } else if (theme === 'vintage') {
+    box.style.background = '#f4ede4';
+    title.style.color = '#451a03';
+    date.style.color = '#78350f';
+    brand.style.color = '#92400e';
+  }
+}
+
+function updatePosterText() {
+  document.getElementById('pTitleDisplay').textContent =
+    document.getElementById('inputPTitle').value.trim() || 'CHINA';
+  document.getElementById('pDateDisplay').textContent =
+    document.getElementById('inputPDate').value.trim();
+  document.getElementById('pBrandDisplay').textContent =
+    document.getElementById('inputPBrand').value.trim();
+}
+
+// 渲染海报内的 SVG 地图
+async function renderPosterMap() {
+  const posterSvg = d3.select('#poster-svg');
+  posterSvg.selectAll('*').remove();
+
+  const defs = posterSvg.append('defs').attr('id', 'poster-svg-defs');
+  const gBase = posterSvg.append('g').attr('id', 'poster-g-base');
+  const gPhotos = posterSvg.append('g').attr('id', 'poster-g-photos');
+  const gLines = posterSvg.append('g').attr('id', 'poster-g-lines');
+
+  const emptyStyle = document.getElementById('selectEmptyStyle').value;
+
+  // 1. 底图轮廓
+  for (const feature of allFeatures) {
+    const adcode = String(feature.properties.adcode);
+    const pathD = pathGenerator(feature);
+
+    if (adcode === '100000_JD') {
+      gLines.append('path')
+        .attr('d', pathD)
+        .attr('fill', 'none')
+        .attr('stroke', '#cbd5e1')
+        .attr('stroke-width', 1)
+        .attr('stroke-dasharray', '3,3');
+      continue;
+    }
+
+    const data = await getProvinceData(adcode);
+    const hasPhotos = data.photos && data.photos.length > 0;
+
+    if (!hasPhotos && emptyStyle === 'subtle') {
+      gBase.append('path')
+        .attr('d', pathD)
+        .attr('fill', 'rgba(0,0,0,0.04)')
+        .attr('stroke', 'rgba(0,0,0,0.08)')
+        .attr('stroke-width', 0.8);
+    }
+  }
+
+  // 2. 照片填满省份
+  for (const adcode in provinceMap) {
+    const pInfo = provinceMap[adcode];
+    const data = await getProvinceData(adcode);
+    if (!data.photos || data.photos.length === 0) continue;
+
+    const feature = pInfo.feature;
+    const pathD = pathGenerator(feature);
+    const clipId = `poster-clip-${adcode}`;
+
+    defs.append('clipPath')
+      .attr('id', clipId)
+      .append('path')
+      .attr('d', pathD);
+
+    const b = getFeatureSvgBounds(feature);
+    const tiles = computeTiles(b, data.photos.length);
+
+    tiles.forEach((tile, idx) => {
+      const ph = data.photos[idx % data.photos.length];
+      gPhotos.append('image')
+        .attr('href', ph.url)
+        .attr('x', tile.x)
+        .attr('y', tile.y)
+        .attr('width', tile.w)
+        .attr('height', tile.h)
+        .attr('preserveAspectRatio', 'xMidYMid slice')
+        .attr('clip-path', `url(#${clipId})`);
+    });
+
+    // 白色分界外边框（营造拍立得/拼图质感）
+    gPhotos.append('path')
+      .attr('d', pathD)
+      .attr('fill', 'none')
+      .attr('stroke', '#ffffff')
+      .attr('stroke-width', 2.5);
+  }
+}
+
+// 导出海报图片 (html2canvas 高清倍率截图)
+function exportPosterImage(format = 'png') {
+  const box = document.getElementById('poster-canvas-box');
+  const origShadow = box.style.boxShadow;
+  box.style.boxShadow = 'none';
+
+  html2canvas(box, {
+    scale: 3, // 3倍超清导出
+    useCORS: true,
+    backgroundColor: null
+  }).then(canvas => {
+    box.style.boxShadow = origShadow;
+    const link = document.createElement('a');
+    link.download = `China_Travel_Poster_${Date.now()}.${format}`;
+    link.href = canvas.toDataURL(`image/${format}`, 0.95);
+    link.click();
+  }).catch(err => {
+    box.style.boxShadow = origShadow;
+    alert('导出海报失败: ' + err.message);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// 9. 足迹打卡清单 Modal
+// ─────────────────────────────────────────────────────────────
+let currentChecklistTab = 'visited';
+
+function openChecklistModal() {
+  document.getElementById('checklist-modal').classList.add('active');
+  renderChecklist();
+}
+
+function closeChecklistModal() {
+  document.getElementById('checklist-modal').classList.remove('active');
+}
+
+function switchChecklistTab(tab) {
+  currentChecklistTab = tab;
+  document.getElementById('tabVisited').className = tab === 'visited' ? 'btn btn-primary' : 'btn';
+  document.getElementById('tabUnvisited').className = tab === 'unvisited' ? 'btn btn-primary' : 'btn';
+  renderChecklist();
+}
+
+async function renderChecklist() {
+  const container = document.getElementById('checklistContainer');
+  container.innerHTML = '';
+
+  const visited = [];
+  const unvisited = [];
+
+  for (const adcode in provinceMap) {
+    const pInfo = provinceMap[adcode];
+    const data = await getProvinceData(adcode);
+    if (data.photos && data.photos.length > 0) {
+      visited.push({ pInfo, data });
+    } else {
+      unvisited.push({ pInfo, data });
+    }
+  }
+
+  document.getElementById('countV').textContent = visited.length;
+  document.getElementById('countU').textContent = unvisited.length;
+
+  const list = currentChecklistTab === 'visited' ? visited : unvisited;
+
+  list.forEach(item => {
+    const card = document.createElement('div');
+    card.style.cssText = 'padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;display:flex;align-items:center;justify-content:space-between;cursor:pointer;';
+    card.innerHTML = `
+      <div>
+        <div style="font-weight:600;font-size:13px;">${item.pInfo.name}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${item.data.photos ? item.data.photos.length + ' 张照片' : '待解锁'}</div>
+      </div>
+      <span style="font-size:12px;color:var(--primary);">进入 ➔</span>
+    `;
+    card.onclick = () => {
+      closeChecklistModal();
+      openDrawer(item.pInfo.feature);
+    };
+    container.appendChild(card);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// 10. 地图缩放控制与 Tooltip
+// ─────────────────────────────────────────────────────────────
+function zoomMap(factor) {
+  currentZoom *= factor;
+  if (currentZoom < 0.8) currentZoom = 0.8;
+  if (currentZoom > 4) currentZoom = 4;
+  d3.select('#map-svg g#g-provinces').style('transform', `scale(${currentZoom})`).style('transform-origin', 'center');
+  d3.select('#map-svg g#g-photo-fills').style('transform', `scale(${currentZoom})`).style('transform-origin', 'center');
+  d3.select('#map-svg g#g-lines').style('transform', `scale(${currentZoom})`).style('transform-origin', 'center');
+  d3.select('#map-svg g#g-labels').style('transform', `scale(${currentZoom})`).style('transform-origin', 'center');
+}
+
+function resetMapZoom() {
+  currentZoom = 1;
+  zoomMap(1);
+}
+
+function showTooltip(e, name) {
+  const tip = document.getElementById('tip');
+  tip.textContent = name;
+  tip.style.opacity = '1';
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  const tip = document.getElementById('tip');
+  tip.style.left = (e.clientX + 14) + 'px';
+  tip.style.top = (e.clientY - 12) + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('tip').style.opacity = '0';
+}
+
+function openGithubModal() {
+  document.getElementById('github-modal').classList.add('active');
+}
+
+function closeGithubModal() {
+  document.getElementById('github-modal').classList.remove('active');
+}
+
+// 键盘快捷键
+document.addEventListener('keydown', e => {
+  if (document.getElementById('lightbox').classList.contains('active')) {
+    if (e.key === 'ArrowLeft') navigateLightbox(-1);
+    if (e.key === 'ArrowRight') navigateLightbox(1);
+    if (e.key === 'Escape') closeLightbox();
+  } else if (e.key === 'Escape') {
+    closeDrawer();
+    closePosterModal();
+    closeChecklistModal();
+    closeGithubModal();
+  }
+});
+
+// 启动应用
+window.addEventListener('DOMContentLoaded', initApp);
+</script>
+</body>
+</html>
