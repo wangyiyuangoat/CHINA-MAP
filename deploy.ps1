@@ -1,4 +1,4 @@
-# Set UTF-8 encoding
+﻿# Set UTF-8 encoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $Host.UI.RawUI.WindowTitle = "China Travel Map - Push to GitHub"
 
